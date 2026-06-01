@@ -73,11 +73,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install "datasets>=2.18" "swebench>=4.1.0"
 
+      # Per-run key + restore-keys: each run saves a NEW manifest snapshot
+      # (cache entries are immutable, so a static key would only ever persist
+      # the first run) and restores the most recent matching one at start.
+      # job-index keeps the key shard-specific without a slash. Correctness does
+      # not depend on this — --skip-existing below also skips anything already on
+      # GHCR — but it makes restarts fast instead of re-probing every image.
       - name: Cache manifest (resume across runs)
         uses: actions/cache@v4
         with:
           path: .local/manifest.jsonl
-          key: manifest-${{ inputs.dataset }}-${{ matrix.shard }}
+          key: manifest-${{ inputs.dataset }}-${{ strategy.job-index }}-${{ github.run_id }}
+          restore-keys: |
+            manifest-${{ inputs.dataset }}-${{ strategy.job-index }}-
 
       - name: Mirror + make public
         if: ${{ inputs.mode == 'mirror' }}
@@ -91,6 +99,7 @@ jobs:
             --engine skopeo \
             --jobs 6 \
             --shard "${{ matrix.shard }}" \
+            --skip-existing \
             ${{ inputs.limit && format('--limit {0}', inputs.limit) || '' }} \
             --set-public
 
