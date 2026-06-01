@@ -1,0 +1,108 @@
+# Mirror SWE-bench / R2E-Gym images into ghcr.io/swe-images and make them public.
+#
+# This lives in swe-images/swe-images on purpose: it pushes with the repo's
+# GITHUB_TOKEN (not a PAT), which connects each package to this repo and grants
+# the token admin on it — the only configuration where the "make public" PATCH
+# (`--set-public`) can succeed. Container packages never inherit visibility from
+# a repo, so the flip is still an explicit step; the repo connection is just
+# what lets us target the package via the API.
+#
+# One-time prerequisite (org owner): Org -> Settings -> Packages ->
+# "Package creation" -> enable Public. Otherwise --set-public is rejected.
+#
+# Copies registry->registry with skopeo (no daemon, no big local disk) and fans
+# out across N parallel shards. publish.py resumes from a per-shard manifest
+# cached between runs, so re-running only fills the gaps.
+
+name: mirror
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: dataset to mirror
+        type: choice
+        default: swe-bench-verified
+        options: [swe-bench-verified, swe-bench, r2e-gym-v1, r2e-gym-lite, all]
+      shards:
+        description: number of parallel shards
+        type: string
+        default: "8"
+      limit:
+        description: max images per dataset (blank = all)
+        type: string
+        default: ""
+      mode:
+        description: mirror (copy+publish) or flip-only (just make existing public)
+        type: choice
+        default: mirror
+        options: [mirror, flip-only]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.gen.outputs.shards }}
+    steps:
+      - id: gen
+        env:
+          N: ${{ inputs.shards }}
+        run: |
+          shards=$(python3 -c "import json,os;n=int(os.environ['N']);print(json.dumps([f'{i}/{n}' for i in range(1,n+1)]))")
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: ${{ fromJson(needs.prepare.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install skopeo + deps
+        run: |
+          sudo apt-get update && sudo apt-get install -y skopeo
+          python -m pip install --upgrade pip
+          pip install "datasets>=2.18" "swebench>=4.1.0"
+
+      - name: Cache manifest (resume across runs)
+        uses: actions/cache@v4
+        with:
+          path: .local/manifest.jsonl
+          key: manifest-${{ inputs.dataset }}-${{ matrix.shard }}
+
+      - name: Mirror + make public
+        if: ${{ inputs.mode == 'mirror' }}
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python publish.py \
+            --dataset "${{ inputs.dataset }}" \
+            --org swe-images \
+            --engine skopeo \
+            --jobs 6 \
+            --shard "${{ matrix.shard }}" \
+            ${{ inputs.limit && format('--limit {0}', inputs.limit) || '' }} \
+            --set-public
+
+      - name: Flip existing packages public (no copying)
+        if: ${{ inputs.mode == 'flip-only' }}
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python publish.py \
+            --dataset "${{ inputs.dataset }}" \
+            --org swe-images \
+            --shard "${{ matrix.shard }}" \
+            ${{ inputs.limit && format('--limit {0}', inputs.limit) || '' }} \
+            --verify-only --set-public
