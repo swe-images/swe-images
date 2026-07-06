@@ -36,8 +36,9 @@ creation" → enable Public**.
 ## Building missing SWE-bench images
 
 `publish.py` can only mirror images that already exist in a public source
-registry. Some `SWE-bench/SWE-bench` train rows do not have public
-`swebench/sweb.eval.*` images, so they must be built first.
+registry. `build_swebench.py` covers the complementary case for rows that are
+supported by the official SWE-bench Docker harness but whose image needs to be
+built locally first.
 
 `build_swebench.py` uses the official SWE-bench Docker harness to build those
 instance images locally, tags them as `ghcr.io/swe-images/sweb.eval.*`, pushes
@@ -47,19 +48,25 @@ This keeps the images benchmark-equivalent: rows whose repo/version is not
 supported by the official harness are **not** replaced by a generic checkout
 image under the `sweb.eval.*` name.
 
-Smoke-test one train image:
+Smoke-test one official image:
 
 ```bash
 python build_swebench.py \
   --dataset-name SWE-bench/SWE-bench \
-  --split train \
+  --split test \
   --instance-id django__django-10097 \
   --dry-run
 ```
 
 Run from GitHub Actions: **Actions** → *build-swebench* → *Run workflow*.
-Start with `instance_ids` or a small `limit`; full train-split builds need
-large Docker disk and are better run on a self-hosted builder.
+Start with `instance_ids` or a small `limit`; full split builds need large
+Docker disk and are better run on a self-hosted builder.
+
+Note: the `SWE-bench/SWE-bench` `train` split is not buildable with official
+`sweb.eval.*` semantics. Its rows use repos/versions that are not in
+SWE-bench's official image-spec table, so this script reports them as
+unsupported instead of publishing generic checkout-only images under benchmark
+image names.
 
 `publish.py` and `sources.py` are vendored from
 `benchmaker/tools/datasets/publish_swe_images`.

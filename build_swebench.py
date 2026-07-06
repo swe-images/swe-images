@@ -16,6 +16,7 @@ push is resumable through the JSONL manifest.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import os
 import subprocess
@@ -133,6 +134,34 @@ def _load_rows(args) -> list[dict[str, Any]]:
     return rows
 
 
+def _support_reason(row: dict[str, Any]) -> str | None:
+    from swebench.harness.constants import MAP_REPO_VERSION_TO_SPECS
+
+    repo = row.get("repo")
+    version = row.get("version")
+    if repo not in MAP_REPO_VERSION_TO_SPECS:
+        return f"repo {repo!r} has no official SWE-bench image spec"
+    if version not in MAP_REPO_VERSION_TO_SPECS[repo]:
+        return f"version {version!r} is not supported for repo {repo!r}"
+    return None
+
+
+def _print_support_summary(rows: list[dict[str, Any]]) -> None:
+    unsupported = [row for row in rows if _support_reason(row)]
+    supported = len(rows) - len(unsupported)
+    print(
+        f"official harness support: supported={supported} unsupported={len(unsupported)}",
+        flush=True,
+    )
+    if unsupported:
+        top = Counter(str(row.get("repo", "?")) for row in unsupported).most_common(10)
+        print(
+            "top unsupported repos: "
+            + ", ".join(f"{repo}={count}" for repo, count in top),
+            flush=True,
+        )
+
+
 def _make_targets(args, rows: list[dict[str, Any]], manifest: BuildManifest) -> tuple[list[BuildTarget], int]:
     from swebench.harness.test_spec.test_spec import make_test_spec
 
@@ -143,6 +172,28 @@ def _make_targets(args, rows: list[dict[str, Any]], manifest: BuildManifest) -> 
         iid = row["instance_id"]
         if manifest.is_unsupported(iid):
             unsupported += 1
+            continue
+        support_reason = _support_reason(row)
+        if support_reason:
+            unsupported += 1
+            rec = {
+                "status": "unsupported",
+                "dataset": args.dataset_name,
+                "split": args.split,
+                "instance_id": iid,
+                "repo": row.get("repo"),
+                "version": row.get("version"),
+                "error_type": "UnsupportedSpec",
+                "error": support_reason,
+            }
+            if not args.dry_run:
+                manifest.record(rec)
+            if unsupported <= 20:
+                print(
+                    f"[unsupported] {iid} repo={row.get('repo')} version={row.get('version')}: "
+                    f"{support_reason}",
+                    flush=True,
+                )
             continue
         try:
             spec = make_test_spec(
@@ -325,6 +376,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"loading {args.dataset_name} split={args.split}", flush=True)
     rows = _load_rows(args)
     print(f"{len(rows)} row(s) selected", flush=True)
+    _print_support_summary(rows)
 
     targets, unsupported = _make_targets(args, rows, manifest)
     print(f"{len(targets)} supported target(s); unsupported/skipped={unsupported}", flush=True)
@@ -336,6 +388,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         for target in targets:
             print(f"would build {target.instance_id} -> {target.target_ref}")
         return 0
+    if rows and unsupported and not targets:
+        print(
+            "No official SWE-bench harness-supported rows were selected. "
+            "The SWE-bench train split is not buildable with official sweb.eval.* "
+            "image semantics; use split=test/dev or a separate generic checkout-image path.",
+            flush=True,
+        )
+        return 2
     if not targets:
         return 0
 
