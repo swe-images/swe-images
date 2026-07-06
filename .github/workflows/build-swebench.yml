@@ -1,0 +1,123 @@
+# Build SWE-bench instance images that do not exist in a public source registry.
+#
+# This workflow is for small batches or self-hosted runners with enough Docker
+# disk. It uses SWE-bench's official harness to build the image locally, pushes
+# it with this repo's GITHUB_TOKEN, then asks GHCR to make the package public.
+
+name: build-swebench
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_name:
+        description: Hugging Face SWE-bench dataset
+        type: string
+        default: SWE-bench/SWE-bench
+      split:
+        description: dataset split
+        type: string
+        default: train
+      instance_ids:
+        description: optional comma/newline-separated instance ids
+        type: string
+        default: ""
+      shards:
+        description: number of parallel shards
+        type: string
+        default: "1"
+      limit:
+        description: max rows before sharding (blank = all)
+        type: string
+        default: ""
+      jobs:
+        description: parallel docker builds per shard
+        type: string
+        default: "2"
+      skip_existing:
+        description: skip images already present on GHCR
+        type: boolean
+        default: true
+      no_push:
+        description: build locally only
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.gen.outputs.shards }}
+    steps:
+      - id: gen
+        env:
+          N: ${{ inputs.shards }}
+        run: |
+          shards=$(python3 -c "import json,os;n=int(os.environ['N']);print(json.dumps([f'{i}/{n}' for i in range(1,n+1)]))")
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: ${{ fromJson(needs.prepare.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "datasets>=2.18" "swebench>=4.1.0" "docker>=7"
+
+      - name: Cache build manifest
+        uses: actions/cache@v4
+        with:
+          path: .local/build-manifest.jsonl
+          key: build-${{ strategy.job-index }}-${{ github.run_id }}
+          restore-keys: |
+            build-${{ strategy.job-index }}-
+
+      - name: Login to GHCR
+        if: ${{ !inputs.no_push }}
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+      - name: Build and publish
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          EXTRA=()
+          if [ -n "${{ inputs.limit }}" ]; then
+            EXTRA+=(--limit "${{ inputs.limit }}")
+          fi
+          if [ -n "${{ inputs.instance_ids }}" ]; then
+            mkdir -p .local
+            printf '%s\n' "${{ inputs.instance_ids }}" > .local/instance-ids.txt
+            EXTRA+=(--instance-ids-file .local/instance-ids.txt)
+          fi
+          if [ "${{ inputs.skip_existing }}" = "true" ]; then
+            EXTRA+=(--skip-existing)
+          fi
+          if [ "${{ inputs.no_push }}" = "true" ]; then
+            EXTRA+=(--no-push --no-verify)
+          fi
+          python build_swebench.py \
+            --dataset-name "${{ inputs.dataset_name }}" \
+            --split "${{ inputs.split }}" \
+            --org swe-images \
+            --jobs "${{ inputs.jobs }}" \
+            --shard "${{ matrix.shard }}" \
+            --set-public \
+            "${EXTRA[@]}"

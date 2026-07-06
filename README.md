@@ -33,5 +33,33 @@ Run it from the **Actions** tab → *mirror* → *Run workflow*:
 Prerequisite (org owner, one-time): **Org → Settings → Packages → "Package
 creation" → enable Public**.
 
+## Building missing SWE-bench images
+
+`publish.py` can only mirror images that already exist in a public source
+registry. Some `SWE-bench/SWE-bench` train rows do not have public
+`swebench/sweb.eval.*` images, so they must be built first.
+
+`build_swebench.py` uses the official SWE-bench Docker harness to build those
+instance images locally, tags them as `ghcr.io/swe-images/sweb.eval.*`, pushes
+them with this repo's token, and then runs the same public-visibility check.
+Unsupported rows are recorded in `.local/build-manifest.jsonl` and skipped.
+This keeps the images benchmark-equivalent: rows whose repo/version is not
+supported by the official harness are **not** replaced by a generic checkout
+image under the `sweb.eval.*` name.
+
+Smoke-test one train image:
+
+```bash
+python build_swebench.py \
+  --dataset-name SWE-bench/SWE-bench \
+  --split train \
+  --instance-id django__django-10097 \
+  --dry-run
+```
+
+Run from GitHub Actions: **Actions** → *build-swebench* → *Run workflow*.
+Start with `instance_ids` or a small `limit`; full train-split builds need
+large Docker disk and are better run on a self-hosted builder.
+
 `publish.py` and `sources.py` are vendored from
 `benchmaker/tools/datasets/publish_swe_images`.
