@@ -1,7 +1,7 @@
 # swe-images
 
-Public mirror of the per-instance container images for **SWE-bench** and
-**R2E-Gym**, hosted under `ghcr.io/swe-images/*`.
+Public mirror of the per-instance container images for **SWE-bench**,
+**R2E-Gym**, and **SWE-smith**, hosted under `ghcr.io/swe-images/*`.
 
 | dataset | source | mirrored as |
 |---|---|---|
@@ -9,6 +9,7 @@ Public mirror of the per-instance container images for **SWE-bench** and
 | `SWE-bench/SWE-bench` | `swebench/sweb.eval.x86_64.<id>:latest` | `ghcr.io/swe-images/sweb.eval.x86_64.<id>:latest` |
 | `R2E-Gym/R2E-Gym-V1` | `<row.docker_image>` (Docker Hub) | `ghcr.io/swe-images/<name>:<commit>` |
 | `R2E-Gym/R2E-Gym-Lite` | `<row.docker_image>` (Docker Hub) | `ghcr.io/swe-images/<name>:<commit>` |
+| `SWE-bench/SWE-smith` | `<row.image_name>:latest` (Docker Hub) | `ghcr.io/swe-images/<name>:latest` |
 
 ```bash
 docker pull ghcr.io/swe-images/sweb.eval.x86_64.astropy_1776_astropy-12907:latest

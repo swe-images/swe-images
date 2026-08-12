@@ -1,6 +1,6 @@
 """Enumerate the source container images for each supported SWE dataset.
 
-Two families of images are handled:
+Three families of images are handled:
 
 * **SWE-bench** (`SWE-bench/SWE-bench_Verified`, `SWE-bench/SWE-bench`) — the
   official prebuilt per-instance images live on Docker Hub under the `swebench`
@@ -14,12 +14,19 @@ Two families of images are handled:
   a ``docker_image`` column that is already a fully qualified Docker Hub
   reference, e.g. ``namanjain12/aiohttp_final:<commit>``.
 
+* **SWE-smith** (`SWE-bench/SWE-smith`) — every row carries an ``image_name``
+  column naming a Docker Hub repository (no tag) under the ``jyangballin``
+  namespace, e.g. ``jyangballin/swesmith.x86_64.<repo>``; the tag defaults to
+  ``latest``. Many rows share one image (one per training repo), so the ~59k
+  rows collapse to a few hundred unique images after dedup.
+
 Each entry resolves to an :class:`ImageRef` describing the public source ref and
 the desired ghcr.io target path. The target *package name* drops the source
 registry and its first namespace component, so:
 
     swebench/sweb.eval.x86_64.<id>:latest -> ghcr.io/<org>/sweb.eval.x86_64.<id>:latest
     namanjain12/aiohttp_final:<commit>    -> ghcr.io/<org>/aiohttp_final:<commit>
+    jyangballin/swesmith.x86_64.<repo>    -> ghcr.io/<org>/swesmith.x86_64.<repo>:latest
 
 This collapses overlapping datasets onto identical targets — SWE-bench_Verified
 is a subset of SWE-bench, and R2E-Gym-Lite a subset of R2E-Gym-V1 — so the
@@ -46,16 +53,27 @@ DATASETS: dict[str, dict] = {
         "split": "test",
     },
     "r2e-gym-v1": {
-        "kind": "r2e",
+        "kind": "image",
         "hf": "R2E-Gym/R2E-Gym-V1",
         "split": "train",
         "field": "docker_image",
     },
     "r2e-gym-lite": {
-        "kind": "r2e",
+        "kind": "image",
         "hf": "R2E-Gym/R2E-Gym-Lite",
         "split": "train",
         "field": "docker_image",
+    },
+    "swe-smith": {
+        "kind": "image",
+        "hf": "SWE-bench/SWE-smith",
+        # train only; the dataset is frozen (Dec 2025) but still pullable, and
+        # the jyangballin/swesmith.* images on Docker Hub are public + latest.
+        "split": "train",
+        "field": "image_name",
+        # one image per training repo, so key ImageRef.instance_id on the repo
+        # (a stable 1:1 per-image id) rather than the per-task instance_id.
+        "instance_field": "repo",
     },
 }
 
@@ -156,11 +174,19 @@ def iter_images(
                 dataset=dataset,
                 instance_id=instance_id,
             )
-        elif cfg["kind"] == "r2e":
+        elif cfg["kind"] == "image":
             src = row[cfg["field"]]
             if not src:
                 continue
-            instance_id = row.get("instance_id") or row.get("repo_name") or src
+            # ``instance_field`` (when set) yields a stable per-image id for
+            # datasets where many rows share one image (e.g. SWE-smith's
+            # one-image-per-repo); otherwise fall back to the row's own id.
+            instance_id = (
+                row.get(cfg.get("instance_field"))
+                or row.get("instance_id")
+                or row.get("repo_name")
+                or src
+            )
             registry, repo, tag = _split_ref(src)
             source = f"{registry}/{repo}:{tag}"
             ref = ImageRef(
