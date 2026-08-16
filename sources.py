@@ -52,6 +52,17 @@ DATASETS: dict[str, dict] = {
         # the full set ships test/dev/train; default to test, override with --split
         "split": "test",
     },
+    "swe-bench-multilingual": {
+        "kind": "image",
+        "hf": "SWE-bench/SWE-bench_Multilingual",
+        # test split only (300 rows); each row carries a fully-qualified
+        # 'image' ref like 'swebench/sweb.eval.x86_64.<instance>:latest', which
+        # is the same naming the 'swebench' kind constructs from instance_id.
+        # Mirroring via the image column therefore lands on the exact same
+        # ghcr targets as SWE-bench, so overlapping instances de-duplicate.
+        "split": "test",
+        "field": "image",
+    },
     "r2e-gym-v1": {
         "kind": "image",
         "hf": "R2E-Gym/R2E-Gym-V1",
