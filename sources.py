@@ -1,6 +1,6 @@
 """Enumerate the source container images for each supported SWE dataset.
 
-Three families of images are handled:
+Four families of images are handled:
 
 * **SWE-bench** (`SWE-bench/SWE-bench_Verified`, `SWE-bench/SWE-bench`) — the
   official prebuilt per-instance images live on Docker Hub under the `swebench`
@@ -20,6 +20,13 @@ Three families of images are handled:
   ``latest``. Many rows share one image (one per training repo), so the ~59k
   rows collapse to a few hundred unique images after dedup.
 
+* **SWE-rebench** (`nebius/SWE-rebench`) — a 21k-instance benchmark; only the
+  ``filtered`` split (6.5k of 21k rows) carries a prebuilt image, in the
+  ``swerebench`` Docker Hub namespace as ``swerebench/sweb.eval.x86_64.<id>``
+  (no tag ⇒ ``latest``). The namespace is dropped on mirror, so targets are
+  ``ghcr.io/<org>/sweb.eval.x86_64.<id>:latest`` — the same scheme as SWE-bench
+  (and with no instance-id overlap).
+
 Each entry resolves to an :class:`ImageRef` describing the public source ref and
 the desired ghcr.io target path. The target *package name* drops the source
 registry and its first namespace component, so:
@@ -27,6 +34,7 @@ registry and its first namespace component, so:
     swebench/sweb.eval.x86_64.<id>:latest -> ghcr.io/<org>/sweb.eval.x86_64.<id>:latest
     namanjain12/aiohttp_final:<commit>    -> ghcr.io/<org>/aiohttp_final:<commit>
     jyangballin/swesmith.x86_64.<repo>    -> ghcr.io/<org>/swesmith.x86_64.<repo>:latest
+    swerebench/sweb.eval.x86_64.<id>      -> ghcr.io/<org>/sweb.eval.x86_64.<id>:latest
 
 This collapses overlapping datasets onto identical targets — SWE-bench_Verified
 is a subset of SWE-bench, and R2E-Gym-Lite a subset of R2E-Gym-V1 — so the
@@ -62,6 +70,17 @@ DATASETS: dict[str, dict] = {
         # ghcr targets as SWE-bench, so overlapping instances de-duplicate.
         "split": "test",
         "field": "image",
+    },
+    "swe-rebench": {
+        "kind": "image",
+        "hf": "nebius/SWE-rebench",
+        # 21k-instance benchmark; only the 'filtered' split (6542 of 21336 rows)
+        # carries a prebuilt image, in the 'swerebench' Docker Hub namespace as
+        # 'swerebench/sweb.eval.x86_64.<id>' (no tag => latest). The namespace
+        # is dropped on mirror, so targets land on the same ghcr scheme as
+        # SWE-bench; no instance-id overlap, so no collision or extra dedup.
+        "split": "filtered",
+        "field": "docker_image",
     },
     "r2e-gym-v1": {
         "kind": "image",
