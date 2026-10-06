@@ -23,7 +23,7 @@ on:
         description: dataset to mirror
         type: choice
         default: swe-bench-verified
-        options: [swe-bench-verified, swe-bench, swe-bench-multilingual, swe-rebench, swe-smith, r2e-gym-v1, r2e-gym-lite, all]
+        options: [swe-bench-verified, swe-bench, swe-bench-multilingual, swe-rebench, terminal-bench-2.1, terminal-bench-2.0, swe-smith, r2e-gym-v1, r2e-gym-lite, all]
       shards:
         description: number of parallel shards
         type: string

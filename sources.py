@@ -27,6 +27,17 @@ Four families of images are handled:
   ``ghcr.io/<org>/sweb.eval.x86_64.<id>:latest`` — the same scheme as SWE-bench
   (and with no instance-id overlap).
 
+* **Terminal-Bench 2.x** (``harborframework/terminal-bench-2.1`` and
+  ``harborframework/terminal-bench-2.0``) — Harbor-style *file* datasets (one
+  directory per task with a ``task.toml``), not load_dataset tables. Every
+  task's ``[environment] docker_image`` is a fully qualified Docker Hub
+  reference under the ``alexgshaw`` namespace with a date tag, e.g.
+  ``alexgshaw/crack-7z-hash:20251031`` (89 tasks per release; all public,
+  amd64-only, ~20 GiB compressed for 2.1). The source namespace is dropped and
+  replaced by a ``terminal-bench/`` path prefix, so targets are
+  ``ghcr.io/<org>/terminal-bench/<task>:<yyyymmdd>`` — no collision with the
+  other datasets' targets, and identical refs across 2.0/2.1 de-duplicate.
+
 Each entry resolves to an :class:`ImageRef` describing the public source ref and
 the desired ghcr.io target path. The target *package name* drops the source
 registry and its first namespace component, so:
@@ -35,6 +46,7 @@ registry and its first namespace component, so:
     namanjain12/aiohttp_final:<commit>    -> ghcr.io/<org>/aiohttp_final:<commit>
     jyangballin/swesmith.x86_64.<repo>    -> ghcr.io/<org>/swesmith.x86_64.<repo>:latest
     swerebench/sweb.eval.x86_64.<id>      -> ghcr.io/<org>/sweb.eval.x86_64.<id>:latest
+    alexgshaw/<task>:<yyyymmdd>           -> ghcr.io/<org>/terminal-bench/<task>:<yyyymmdd>
 
 This collapses overlapping datasets onto identical targets — SWE-bench_Verified
 is a subset of SWE-bench, and R2E-Gym-Lite a subset of R2E-Gym-V1 — so the
@@ -104,6 +116,23 @@ DATASETS: dict[str, dict] = {
         # one image per training repo, so key ImageRef.instance_id on the repo
         # (a stable 1:1 per-image id) rather than the per-task instance_id.
         "instance_field": "repo",
+    },
+    "terminal-bench-2.1": {
+        "kind": "tbench",
+        "hf": "harborframework/terminal-bench-2.1",
+        # Harbor-style file dataset: tasks/<name>/task.toml with
+        # [environment] docker_image = "alexgshaw/<task>:<yyyymmdd>" on Docker
+        # Hub. 89 tasks, amd64-only. Tags are date-pinned, so 2.0/2.1 refs to
+        # the same tag+repo collapse onto identical targets (dedup via the
+        # target-ref set in publish.py).
+        "tasks_glob": "tasks/*",
+    },
+    "terminal-bench-2.0": {
+        "kind": "tbench",
+        "hf": "harborframework/terminal-bench-2.0",
+        # same content family; 2.0 keeps task dirs at the repo root and has no
+        # dataset-viewer parquet conversion, hence the glob override.
+        "tasks_glob": "*",
     },
 }
 
@@ -176,6 +205,55 @@ def _load_hf_ids(hf_id: str, split: str) -> list[dict]:
     return ds
 
 
+def _iter_tbench(cfg: dict, dataset: str) -> Iterator[ImageRef]:
+    """Yield ImageRefs for a Harbor-style Terminal-Bench file dataset.
+
+    These repos are directories of tasks (``<tasks_glob>/<name>/task.toml``)
+    rather than load_dataset tables, so we snapshot just the ``task.toml``
+    files via huggingface_hub (no ``datasets`` dependency needed) and read each
+    task's ``[environment] docker_image``.
+    """
+    from pathlib import Path
+
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+        import tomli as tomllib
+    from huggingface_hub import snapshot_download
+
+    tasks_glob = cfg.get("tasks_glob", "tasks/*")
+    # fetch only the task.toml files — the repos also carry Dockerfiles,
+    # encrypted solution artifacts and test bundles we do not need here.
+    allow = [f"{tasks_glob}/task.toml"]
+    root = Path(
+        snapshot_download(repo_id=cfg["hf"], repo_type="dataset", allow_patterns=allow)
+    )
+    task_dirs = sorted(
+        path for path in root.glob(tasks_glob) if (path / "task.toml").is_file()
+    )
+    if not task_dirs:
+        raise RuntimeError(f"no task.toml found under {root}/{tasks_glob}")
+
+    for task_dir in task_dirs:
+        config = tomllib.loads((task_dir / "task.toml").read_text(encoding="utf-8"))
+        src = (config.get("environment") or {}).get("docker_image")
+        if not src:
+            continue
+        task_name = (config.get("task") or {}).get("name") or task_dir.name
+        registry, repo, tag = _split_ref(src)
+        # alexgshaw/<task>:<tag> -> terminal-bench/<task>:<tag>: drop the source
+        # namespace and add a dataset prefix so shared-org targets can't
+        # collide with the R2E/SWE-smith flat names.
+        task_slug = repo.split("/", 1)[-1]
+        yield ImageRef(
+            source=f"{registry}/{repo}:{tag}",
+            target_name=f"terminal-bench/{_target_name_from_repo(task_slug)}",
+            target_tag=tag,
+            dataset=dataset,
+            instance_id=task_name,
+        )
+
+
 def iter_images(
     dataset: str,
     *,
@@ -188,12 +266,20 @@ def iter_images(
     if dataset not in DATASETS:
         raise KeyError(f"unknown dataset {dataset!r}; known: {sorted(DATASETS)}")
     cfg = DATASETS[dataset]
-    use_split = split or cfg["split"]
-    rows = _load_hf_ids(cfg["hf"], use_split)
+    use_split = split or cfg.get("split")
+
+    if cfg["kind"] == "tbench":
+        # _iter_tbench already yields ImageRefs; the row loop below would
+        # re-derive one from dataset columns, so dispatch directly.
+        refs: Iterator = _iter_tbench(cfg, dataset)
+    else:
+        refs = _load_hf_ids(cfg["hf"], use_split)
 
     count = 0
-    for row in rows:
-        if cfg["kind"] == "swebench":
+    for row in refs:
+        if cfg["kind"] == "tbench":
+            ref = row
+        elif cfg["kind"] == "swebench":
             instance_id = row["instance_id"]
             source = swebench_source(instance_id, arch=arch)
             _, repo, tag = _split_ref(source)

@@ -13,6 +13,8 @@ hosted under `ghcr.io/swe-images/*`.
 | `R2E-Gym/R2E-Gym-V1` | `<row.docker_image>` (Docker Hub) | `ghcr.io/swe-images/<name>:<commit>` |
 | `R2E-Gym/R2E-Gym-Lite` | `<row.docker_image>` (Docker Hub) | `ghcr.io/swe-images/<name>:<commit>` |
 | `SWE-bench/SWE-smith` | `<row.image_name>:latest` (Docker Hub) | `ghcr.io/swe-images/<name>:latest` |
+| `harborframework/terminal-bench-2.1` | `<task.toml> environment.docker_image` (Docker Hub, `alexgshaw/*`, date tags) | `ghcr.io/swe-images/terminal-bench/<task>:<yyyymmdd>` |
+| `harborframework/terminal-bench-2.0` | `<task.toml> environment.docker_image` (Docker Hub, `alexgshaw/*`, date tags) | `ghcr.io/swe-images/terminal-bench/<task>:<yyyymmdd>` |
 
 ```bash
 docker pull ghcr.io/swe-images/sweb.eval.x86_64.astropy_1776_astropy-12907:latest
