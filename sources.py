@@ -61,6 +61,14 @@ from typing import Iterator, Optional
 
 # Logical dataset name -> config. ``kind`` selects the enumeration strategy.
 DATASETS: dict[str, dict] = {
+    "swe-bench-pro-v1": {
+        "kind": "image",
+        "hf": "ScaleAI/SWE-bench_Pro",
+        "config": "v1",
+        "split": "test",
+        "field": "dockerhub_tag",
+        "source_prefix": "jefzda/sweap-images:",
+    },
     "swe-bench-verified": {
         "kind": "swebench",
         "hf": "SWE-bench/SWE-bench_Verified",
@@ -198,10 +206,10 @@ def swebench_source(instance_id: str, arch: str = "x86_64") -> str:
     return f"{DOCKER_HUB}/swebench/sweb.eval.{arch}.{norm}:latest"
 
 
-def _load_hf_ids(hf_id: str, split: str) -> list[dict]:
+def _load_hf_ids(hf_id: str, split: str, config: Optional[str] = None) -> list[dict]:
     from datasets import load_dataset
 
-    ds = load_dataset(hf_id, split=split)
+    ds = load_dataset(hf_id, config, split=split)
     return ds
 
 
@@ -273,7 +281,7 @@ def iter_images(
         # re-derive one from dataset columns, so dispatch directly.
         refs: Iterator = _iter_tbench(cfg, dataset)
     else:
-        refs = _load_hf_ids(cfg["hf"], use_split)
+        refs = _load_hf_ids(cfg["hf"], use_split, config=cfg.get("config"))
 
     count = 0
     for row in refs:
@@ -294,6 +302,7 @@ def iter_images(
             src = row[cfg["field"]]
             if not src:
                 continue
+            src = cfg.get("source_prefix", "") + src
             # ``instance_field`` (when set) yields a stable per-image id for
             # datasets where many rows share one image (e.g. SWE-smith's
             # one-image-per-repo); otherwise fall back to the row's own id.

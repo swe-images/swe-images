@@ -6,6 +6,7 @@ hosted under `ghcr.io/swe-images/*`.
 
 | dataset | source | mirrored as |
 |---|---|---|
+| `ScaleAI/SWE-bench_Pro` (config `v1`, 731 tasks) | `jefzda/sweap-images:<row.dockerhub_tag>` | `ghcr.io/swe-images/sweap-images:<row.dockerhub_tag>` |
 | `SWE-bench/SWE-bench_Verified` | `swebench/sweb.eval.x86_64.<id>:latest` | `ghcr.io/swe-images/sweb.eval.x86_64.<id>:latest` |
 | `SWE-bench/SWE-bench` | `swebench/sweb.eval.x86_64.<id>:latest` | `ghcr.io/swe-images/sweb.eval.x86_64.<id>:latest` |
 | `SWE-bench/SWE-bench_Multilingual` | `<row.image>` (Docker Hub) | `ghcr.io/swe-images/sweb.eval.x86_64.<id>:latest` |
