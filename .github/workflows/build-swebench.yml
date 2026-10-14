@@ -16,7 +16,7 @@ on:
       split:
         description: dataset split
         type: string
-        default: train
+        default: test
       instance_ids:
         description: optional comma/newline-separated instance ids
         type: string
